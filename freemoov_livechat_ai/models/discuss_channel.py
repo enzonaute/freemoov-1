@@ -19,6 +19,16 @@ _logger = logging.getLogger(__name__)
 BOT_PARTNER_XMLID = "freemoov_livechat_ai.partner_ai_bot"
 PRODUCT_CARDS_TEMPLATE = "freemoov_livechat_ai.assistant_product_cards"
 MAX_PRODUCT_CARDS = 3
+USAGE_WINDOW = timedelta(hours=1)
+BUDGET_PAUSE_TEXT = (
+    "Cette conversation a temporairement atteint sa limite d’utilisation. "
+    "Vous pourrez poursuivre ici en réessayant plus tard, dans une heure au plus. "
+    "Votre historique est conservé et vous n’avez pas besoin de recommencer la conversation."
+)
+RATE_PAUSE_TEXT = (
+    "L’assistant reçoit beaucoup de demandes en ce moment. "
+    "Merci de réessayer dans une minute : votre message est conservé ici."
+)
 
 # Re-entrancy marker carried by everything this module posts, read back in
 # `_freemoov_ai_trigger_from_message`. Never read from the database: it lives
@@ -138,8 +148,7 @@ class DiscussChannel(models.Model):
             "rate_limit_per_min": _int_param(
                 ICP, "freemoov_livechat_ai.rate_limit_per_min", 20
             ),
-            # Ceiling on what one conversation may spend, both directions
-            # summed. Anything below 1 lifts it.
+            # Rolling-hour ceiling, both directions summed. Below 1 lifts it.
             "conversation_token_budget": _int_param(
                 ICP, "freemoov_livechat_ai.conversation_token_budget", 50000
             ),
@@ -303,13 +312,21 @@ class DiscussChannel(models.Model):
         return log
 
     def _freemoov_ai_tokens_spent(self):
-        """Tokens already billed on this conversation, both directions."""
+        """Rolling-hour usage; a historic ceiling must never lock out a visitor."""
         Log = self.env["freemoov.livechat.ai.log"].sudo()
         [(spent_in, spent_out)] = Log._read_group(
-            [("channel_id", "=", self.id)],
+            [("channel_id", "=", self.id),
+             ("create_date", ">", fields.Datetime.now() - USAGE_WINDOW)],
             aggregates=["input_tokens:sum", "output_tokens:sum"],
         )
         return (spent_in or 0) + (spent_out or 0)
+
+    def _freemoov_ai_pause(self, status, question, text):
+        """No model call or human handoff; keep the reason and visible reply auditable."""
+        log = self._freemoov_ai_log(status, visitor_message=question, bot_response=text)
+        if not self._freemoov_ai_is_dry_run():
+            self._freemoov_ai_post_as_bot(text)
+        return log
 
     def _freemoov_ai_notify_typing(self, is_typing):
         """Typing indicator, over the bot's own membership (native bus).
@@ -381,19 +398,17 @@ class DiscussChannel(models.Model):
         if not self._freemoov_ai_is_enabled():
             return self._freemoov_ai_log("skipped_disabled", visitor_message=visitor_message_text)
 
-        if not self._freemoov_ai_check_rate_limit(cfg["rate_limit_per_min"]):
-            return self._freemoov_ai_log("skipped_rate", visitor_message=visitor_message_text)
-
         if self._freemoov_ai_human_active():
             return self._freemoov_ai_log("skipped_human", visitor_message=visitor_message_text)
 
-        # Per-conversation ceiling (spec §8). A turn now runs up to seven API
-        # calls carrying the whole history, so a single long conversation can
-        # cost more than a day of short ones. Checked before the prompt is even
-        # built: the knowledge base is not free either.
+        if not self._freemoov_ai_check_rate_limit(cfg["rate_limit_per_min"]):
+            return self._freemoov_ai_pause("skipped_rate", visitor_message_text, RATE_PAUSE_TEXT)
+
+        # Limit recent spend without permanently disabling long conversations.
+        # Paused turns consume no tokens and cannot extend the rolling window.
         budget = cfg["conversation_token_budget"]
         if budget > 0 and self._freemoov_ai_tokens_spent() >= budget:
-            return self._freemoov_ai_log("skipped_budget", visitor_message=visitor_message_text)
+            return self._freemoov_ai_pause("skipped_budget", visitor_message_text, BUDGET_PAUSE_TEXT)
 
         try:
             system_prompt = build_system_prompt(self.env)

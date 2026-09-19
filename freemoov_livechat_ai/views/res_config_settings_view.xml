@@ -34,8 +34,8 @@
                         <setting id="freemoov_ai_rate_setting" string="Max appels / minute">
                             <field name="freemoov_ai_rate_limit_per_min"/>
                         </setting>
-                        <setting id="freemoov_ai_budget_setting" string="Plafond de jetons par conversation"
-                                 help="Jetons envoyés et reçus cumulés sur une conversation. -1 pour lever le plafond.">
+                        <setting id="freemoov_ai_budget_setting" string="Plafond de jetons par conversation / heure glissante"
+                                 help="Jetons envoyés et reçus pendant la dernière heure. Pause temporaire annoncée au visiteur. -1 pour lever le plafond.">
                             <field name="freemoov_ai_conversation_token_budget"/>
                         </setting>
                     </block>

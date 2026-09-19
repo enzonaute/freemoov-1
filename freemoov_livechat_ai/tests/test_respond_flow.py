@@ -4,11 +4,13 @@ Mocked at the same boundary as the loop tests — `create_message` — so every
 tool below really runs against the test database and nothing leaves the box.
 """
 import json
+from datetime import timedelta
 from unittest.mock import call, patch
 
 import psycopg2
 
 from odoo.tests import tagged
+from odoo import fields
 
 from ..models.discuss_channel import BOT_POST_CONTEXT_KEY
 from ..services import agent_loop, tools
@@ -223,6 +225,49 @@ class TestRespondFlow(FreemoovAiCase):
             log = self.channel._freemoov_ai_respond("encore une question")
         self.assertEqual(log.status, "skipped_budget")
         self.assertFalse(create_message.called)
+        self.assertIn("une heure", self._bodies()[0])
+        self.assertTrue(log.bot_response)
+        self.assertNotIn("conseiller", log.bot_response)
+
+    def test_old_usage_does_not_block_conversation_forever(self):
+        old = self._log().create({"channel_id": self.channel.id, "status": "ok",
+                                  "input_tokens": 60000})
+        # create_date is a protected audit field: age this test fixture in SQL.
+        old.flush_recordset()
+        self.env.cr.execute('UPDATE freemoov_livechat_ai_log SET create_date = %s WHERE id = %s',
+                            (fields.Datetime.now() - timedelta(hours=2), old.id))
+        old.invalidate_recordset(['create_date'])
+        with patch.object(AnthropicClient, "create_message", return_value=_resp(text="Nous continuons ici.")) as api:
+            log = self.channel._freemoov_ai_respond("encore une question")
+        self.assertEqual(log.status, "ok")
+        self.assertTrue(api.called)
+
+    def test_recent_usage_still_counts_and_skips_do_not_extend_pause(self):
+        self._log().create({"channel_id": self.channel.id, "status": "ok", "input_tokens": 50000})
+        with patch.object(AnthropicClient, "create_message") as api:
+            self.channel._freemoov_ai_respond("question")
+            self.channel._freemoov_ai_respond("question suivante")
+        self.assertFalse(api.called)
+        self.assertEqual(self.channel._freemoov_ai_tokens_spent(), 50000)
+        self.assertEqual(len(self._bodies()), 2)
+
+    def test_rate_limit_posts_a_retry_notice_without_handoff(self):
+        self.env['ir.config_parameter'].sudo().set_param('freemoov_livechat_ai.rate_limit_per_min', '1')
+        self._log().create({"channel_id": self.channel.id, "status": "ok"})
+        with patch.object(AnthropicClient, "create_message") as api:
+            log = self.channel._freemoov_ai_respond("bonjour")
+        self.assertFalse(api.called)
+        self.assertEqual(log.status, 'skipped_rate')
+        self.assertIn('une minute', self._bodies()[0])
+        self.assertNotIn('conseiller', log.bot_response)
+
+    def test_dry_run_budget_notice_is_only_logged(self):
+        self.env['ir.config_parameter'].sudo().set_param('freemoov_livechat_ai.dry_run', 'True')
+        self._log().create({"channel_id": self.channel.id, "status": "ok", "input_tokens": 50000})
+        with patch.object(AnthropicClient, "create_message") as api:
+            log = self.channel._freemoov_ai_respond("bonjour")
+        self.assertFalse(api.called)
+        self.assertTrue(log.bot_response)
         self.assertFalse(self._bodies())
 
     def test_budget_is_per_channel(self):

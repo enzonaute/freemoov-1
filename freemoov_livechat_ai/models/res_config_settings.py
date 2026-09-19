@@ -48,8 +48,8 @@ class ResConfigSettings(models.TransientModel):
         string="Max response tokens",
         config_parameter="freemoov_livechat_ai.max_tokens",
         default=1200,
-        help="Une réponse coupée à ce plafond n'est pas relayée au visiteur : "
-             "le tour bascule sur un conseiller.",
+        help="Une réponse coupée est reformulée en une seconde tentative, "
+             "sans rejouer les outils ni transfert automatique.",
     )
     freemoov_ai_client_timeout = fields.Integer(
         string="Timeout par appel API (s)",
@@ -65,10 +65,11 @@ class ResConfigSettings(models.TransientModel):
         default=20,
     )
     freemoov_ai_conversation_token_budget = fields.Integer(
-        string="Plafond de jetons par conversation",
+        string="Plafond de jetons par conversation / heure glissante",
         config_parameter="freemoov_livechat_ai.conversation_token_budget",
         default=50000,
-        help="Jetons envoyés et reçus cumulés sur une même conversation. "
+        help="Jetons envoyés et reçus sur la dernière heure de cette conversation. "
+             "Une pause explicite remplace le silence ; les anciens jetons expirent automatiquement. "
              "Saisir -1 pour lever le plafond : 0 n'est pas enregistrable, "
              "l'interface le relit comme « valeur par défaut ».",
     )
