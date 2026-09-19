@@ -40,6 +40,42 @@ patch(ChatWindow.prototype, {
 });
 
 patch(Composer.prototype, {
+    async processMessage(callback) {
+        const composer = this.props.composer;
+        // Keep native editing, attachments and non-assistant conversations intact.
+        if (!this.isFreemoovAssistant || composer.message ||
+            composer.attachments.length || !composer.textInputContent.trim()) {
+            return super.processMessage(...arguments);
+        }
+        if (!this.state.active) {
+            return;
+        }
+        const text = composer.textInputContent;
+        const input = this.ref.el;
+        this.state.active = false;
+        // Do not clear attachments/mentions before _sendMessage has read them.
+        // The RPC includes AI generation, so waiting for it leaves sent text
+        // misleadingly visible in the disabled input for several seconds.
+        composer.textInputContent = "";
+        try {
+            await callback(text);
+        } catch (error) {
+            if (!composer.textInputContent) {
+                composer.textInputContent = text;
+            }
+            throw error;
+        } finally {
+            this.state.active = true;
+            if (input?.isConnected) {
+                input.focus();
+            }
+        }
+        this.props.onPostCallback?.();
+        // Never erase a newer draft populated while the request was pending.
+        if (!composer.textInputContent) {
+            this.clear();
+        }
+    },
     get isFreemoovAssistant() {
         return isFreemoovThread(this.env, this.thread);
     },

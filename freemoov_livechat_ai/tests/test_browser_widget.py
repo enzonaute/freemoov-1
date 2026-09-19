@@ -98,6 +98,44 @@ class TestBrowserWidget(HttpCase):
                     browser.setTimeout = originalSetTimeout;
                     browser.clearTimeout = originalClearTimeout;
                 }
+                const { Composer } = odoo.loader.modules.get('@mail/core/common/composer');
+                const draft = {textInputContent: '900 max', attachments: []};
+                let cleared = 0;
+                const component = {
+                    props: {composer: draft}, state: {active: true},
+                    isFreemoovAssistant: true, ref: {el: null},
+                    clear() { cleared++; draft.textInputContent = ''; },
+                };
+                let finish;
+                let submitted;
+                const pending = Composer.prototype.processMessage.call(component, text => {
+                    submitted = text;
+                    return new Promise(resolve => { finish = resolve; });
+                });
+                if (draft.textInputContent !== '' || submitted !== '900 max' || component.state.active) {
+                    throw new Error('Sent draft must disappear before the RPC finishes');
+                }
+                await Composer.prototype.processMessage.call(component, () => { throw new Error('Duplicate send'); });
+                finish();
+                await pending;
+                if (!component.state.active || cleared !== 1) throw new Error('Composer not restored after success');
+                draft.textInputContent = 'Message to recover';
+                const failure = new Error('Network unavailable');
+                try {
+                    await Composer.prototype.processMessage.call(component, async () => { throw failure; });
+                    throw new Error('Failure swallowed');
+                } catch (error) {
+                    if (error !== failure) throw error;
+                }
+                if (draft.textInputContent !== 'Message to recover' || !component.state.active) {
+                    throw new Error('Failed send lost the draft or locked composer');
+                }
+                const delayed = Composer.prototype.processMessage.call(component,
+                    () => new Promise(resolve => { finish = resolve; }));
+                draft.textInputContent = 'Newer draft';
+                finish();
+                await delayed;
+                if (draft.textInputContent !== 'Newer draft') throw new Error('Late success erased newer draft');
                 console.log('test successful');
             })().catch(error => console.error(error));
         """, ready="Boolean(window.odoo?.loader?.modules.has('@freemoov_livechat_ai/js/assistant_typing'))", timeout=60)
