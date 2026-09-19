@@ -35,6 +35,14 @@
                      isInChatWindow="env.inChatWindow"
                      isTypingMessage="true"
                      thread="props.thread"/>
+            <div t-if="showAssistantTyping" class="fm-assistant-status" role="status" aria-live="polite" aria-atomic="true">
+                <t t-if="assistantTyping.slow">La réponse prend un peu plus de temps. Inutile de renvoyer votre message.</t>
+                <t t-else="">Votre message est en cours de traitement…</t>
+            </div>
+            <div t-if="isFreemoovAssistant and assistantTyping.failed and !assistantTyping.isWaitingFor(props.thread)"
+                 class="fm-assistant-status fm-assistant-status-error" role="alert">
+                L’envoi n’a pas pu être confirmé. Vérifiez votre connexion et l’historique avant de réessayer.
+            </div>
         </xpath>
     </t>
 

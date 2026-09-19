@@ -11,6 +11,7 @@ import { browser } from "@web/core/browser/browser";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { patch } from "@web/core/utils/patch";
+import { isFreemoovThread } from "./assistant_presentation";
 
 /**
  * How long the indicator survives the RPC that raised it.
@@ -24,6 +25,7 @@ import { patch } from "@web/core/utils/patch";
  * visitor would find plausible.
  */
 export const REPLY_GRACE_DELAY = 1500;
+export const SLOW_REPLY_DELAY = 12000;
 
 /**
  * Client-side "the assistant is writing" indicator.
@@ -50,6 +52,9 @@ export class AssistantTypingService {
     grace = false;
     /** @type {number|null} */
     timeout = null;
+    slowTimeout = null;
+    slow = false;
+    failed = false;
 
     constructor() {
         // Same shape as `im_livechat.chatbot`: components read this service
@@ -59,6 +64,13 @@ export class AssistantTypingService {
 
     /** A message is on its way to the server. */
     start() {
+        this.failed = false;
+        if (this.pending === 0) {
+            this.slow = false;
+            this.slowTimeout = browser.setTimeout(() => {
+                this.slow = this.pending > 0;
+            }, SLOW_REPLY_DELAY);
+        }
         this.pending++;
         this._clearGrace();
     }
@@ -69,6 +81,7 @@ export class AssistantTypingService {
         if (this.pending > 0) {
             return;
         }
+        this._clearSlow();
         this.grace = true;
         this.timeout = browser.setTimeout(() => this._clearGrace(), REPLY_GRACE_DELAY);
     }
@@ -77,6 +90,8 @@ export class AssistantTypingService {
     postFailed() {
         this.pending = Math.max(0, this.pending - 1);
         if (this.pending === 0) {
+            this.failed = true;
+            this._clearSlow();
             this._clearGrace();
         }
     }
@@ -107,6 +122,12 @@ export class AssistantTypingService {
         this.timeout = null;
         this.grace = false;
     }
+
+    _clearSlow() {
+        browser.clearTimeout(this.slowTimeout);
+        this.slowTimeout = null;
+        this.slow = false;
+    }
 }
 
 export const assistantTypingService = {
@@ -128,7 +149,7 @@ patch(ThreadService.prototype, {
      * Raise the indicator before the RPC, not after it: the RPC *is* the wait.
      */
     async post(thread) {
-        if (thread?.type !== "livechat") {
+        if (!isFreemoovThread(this.env, thread)) {
             return super.post(...arguments);
         }
         this.assistantTyping.start();

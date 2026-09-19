@@ -1,6 +1,6 @@
 {
     'name': 'Freemoov Livechat AI',
-    'version': '17.0.0.1.8',
+    'version': '17.0.0.1.9',
     'category': 'Website/Live Chat',
     'summary': 'Hybrid livechat bot: Odoo native chatbot + Claude fallback on open questions',
     'author': 'Freemoov',
