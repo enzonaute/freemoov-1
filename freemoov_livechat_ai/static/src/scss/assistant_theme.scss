@@ -33,6 +33,17 @@
         &:hover { background: var(--fm-paper); color: var(--fm-deep) !important; }
     }
     .o-mail-ChatWindow-counter { background: var(--fm-deep); color: white; }
+    // The native folded window is shorter than our expanded 84px header.
+    // Give its contents the available height instead of clipping their bottom.
+    &.o-folded:not(.o-isMobileFoldedForLivechatVisitor) {
+        height: 60px !important;
+        .o-mail-ChatWindow-header {
+            height: 100%; min-height: 0; padding: 8px 14px 8px 22px;
+            align-items: center !important; border-bottom: 0 !important;
+        }
+        .fm-assistant-brand { justify-content: center; }
+        .fm-assistant-brand > span { display: none; }
+    }
     button:focus-visible, a:focus-visible { outline: 2px solid var(--fm-deep); outline-offset: 3px; }
     .fm-assistant-brand {
         display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0;

@@ -136,6 +136,19 @@ class TestBrowserWidget(HttpCase):
                 finish();
                 await delayed;
                 if (draft.textInputContent !== 'Newer draft') throw new Error('Late success erased newer draft');
+                if (globalThis.innerWidth >= 768) {
+                    window.querySelector('.o-mail-ChatWindow-header').click();
+                    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                    if (!window.classList.contains('o-folded')) throw new Error('Window did not fold');
+                    const folded = window.getBoundingClientRect();
+                    const center = folded.top + folded.height / 2;
+                    for (const element of window.querySelectorAll('.fm-assistant-brand img, .o-mail-ChatWindow-command')) {
+                        const bounds = element.getBoundingClientRect();
+                        if (Math.abs(bounds.top + bounds.height / 2 - center) > 2) {
+                            throw new Error('Folded header content is not vertically centered');
+                        }
+                    }
+                }
                 console.log('test successful');
             })().catch(error => console.error(error));
         """, ready="Boolean(window.odoo?.loader?.modules.has('@freemoov_livechat_ai/js/assistant_typing'))", timeout=60)
